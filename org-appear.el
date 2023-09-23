@@ -348,6 +348,7 @@ Return nil if element cannot be parsed."
       (setq start (1- visible-start))
       (setq end (1+ visible-end)))
     (with-silent-modifications
+      (org-appear--make-zwsp-elem-invisible elem-type nil start end)
       (cond ((eq elem-type 'entity)
 	     (decompose-region start end))
 	    ((memq elem-type '(latex-fragment latex-environment))
@@ -399,6 +400,7 @@ When RENEW is non-nil, obtain element at point instead."
 	(setq start (1- visible-start))
 	(setq end (1+ visible-end)))
       (with-silent-modifications
+	(org-appear--make-zwsp-elem-invisible elem-type t start end)
 	(cond ((eq elem-type 'entity)
 	       (compose-region start end (org-element-property :utf-8 elem))
 	       (font-lock-flush start end))
@@ -424,3 +426,45 @@ When RENEW is non-nil, obtain element at point instead."
 
 (provide 'org-appear)
 ;;; org-appear.el ends here
+
+
+;;;###autoload
+(add-hook 'org-mode-hook (lambda ()
+  (org-fold-add-folding-spec 'org-appear-invisible '(:global t))
+  (org-appear--make-zwsp-buffer-invisible)))
+
+(defun org-appear--make-char-invisible (flag &optional pos)
+  (let ((pos (or pos (point))))
+    (org-fold-region pos (1+ pos) flag 'org-appear-invisible)))
+
+(defun org-appear--make-pair-invisible (flag beg end)
+  (when end (setq end (1- end)))
+  (if flag
+      (when (and beg end)
+        (org-appear--make-char-invisible t beg)
+        (org-appear--make-char-invisible t end))
+    (progn
+      (when beg (org-appear--make-char-invisible nil beg))
+      (when end (org-appear--make-char-invisible nil end)))))
+
+(defun org-appear--make-zwsp-elem-invisible (elem-type flag beg end)
+  (when (and (member elem-type '(bold italic underline strike-through verbatim code latex-fragment))
+          beg (> beg (point-min))
+          end (< end (point-max)))
+    (setq beg (if (eq (char-before beg) #x200b) (1- beg) nil))
+    (setq end (if (eq (char-after end) #x200b) (1+ end) nil))
+    (org-appear--make-pair-invisible flag beg end)))
+
+(defun org-appear--make-zwsp-line-invisible (flag &optional re)
+  (let ((re (or re "\u200b")))
+    (save-excursion
+      (goto-char (line-beginning-position))
+      (while (re-search-forward re (line-end-position) t)
+      (org-appear--make-char-invisible flag (match-beginning 0))))))
+
+(defun org-appear--make-zwsp-buffer-invisible (&optional re)
+  (let ((re (or re "\\(\u200b\\)\\([*/_+=~$]\\)\\(.*?\\)\\(\\2\\)\\(\\1\\)")))
+    (save-excursion
+      (goto-char (point-min))
+      (while (re-search-forward re nil t)
+      (org-appear--make-pair-invisible t (match-beginning 1) (1+ (match-beginning 5)))))))
